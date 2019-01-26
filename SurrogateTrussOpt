@@ -127,7 +127,7 @@ def opttruss(coord,connec,E,F,freenode,V0,plotdisp=False,solver="ralg"):
       D = E * x/l
       kx = e * D
       K = np.zeros((2*m, 2*m))
-      for i in range(n): # Local Stiffness Matrices
+      for i in range(n): # Local Stiffness Matrices 
         aux = 2*connec[i,:]
         index = np.r_[aux[0]:aux[0]+2, aux[1]:aux[1]+2]
         k0 = np.concatenate((np.concatenate((B[i],-B[i]),axis=1), \
