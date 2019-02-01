@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+from openopt import NLP
+from matplotlib.pyplot import figure,show
+import pyDOE
+from pyDOE import *
+from scipy.stats.distributions import norm
+from profilestats import profile
+import tensorflow as tf
+from tensorflow import keras as keras
+import sklearn
+import numpy as np
+from keras.wrappers.scikit_learn import KerasClassifier
+from sklearn.model_selection import cross_val_score
+from keras.models import Sequential
+from keras.layers import Dense
+
+def meshtruss(p1,p2,nx,ny):
+  """ Define Geometry of the trus
+      p1 - coordinate of one end, p2 - coordinate of second end
+      nx - number of nodes in x direction, # ny - number of nodes in y direction
+      returns coordinates of nodes, and """
+  nodes = []
+  bars = []
+  xx = np.linspace(p1[0],p2[0],nx+1)
+  yy = np.linspace(p1[1],p2[1],ny+1)
+  for y in yy:
+    for x in xx:
+      nodes.append([x,y])
+  for j in range(ny):
+      for i in range(nx):
+        n1 = i + j*(nx+1)
+        n2 = n1 + 1
+        n3 = n1 + nx + 1
+        n4 = n3 + 1
+        bars.extend([[n1,n2],[n1,n3],[n1,n4],[n2,n3]])
+      bars.append([n2,n4])
+  index = ny*(nx+1) + 1
+  for j in range(nx):
+    bars.append([index+j-1,index+j])
+  return np.array(nodes), np.array(bars)
+
+def remove_bar (connec,n1,n2):
+    bars = connec.tolist()
+    for bar in bars[:]:
+        if (bar[0] == n1 and bar[1] == n2):
+            bars.remove(bar)
+            return np.array(bars)
+        
+
+def remove_node(connec, n1):
+    bars = connec.tolist()
+    for bar in bars[:]:
+        if bar[0] == n1 or bar[1] == n1:
+            bars.remove(bar)
+            return np.array(bars)
+        
+coord, connec = meshtruss((0,0), (18.28,9.14), 2, 1)
+E0=2e+11
+E = E0*np.ones(connec.shape[0])
+loads = np.zeros_like(coord)
+connec=remove_bar(connec,0,3)
+loads[1,1] = -4444.22
+loads[2,1] = -4444.22
+free = np.ones_like(coord).astype(int)
+free[0,:]=0
+free[3,:]=0
+        
+n = connec.shape[0]  # Number of members
+m = coord.shape[0]   # Number of nodes
+vectors = coord[connec[:,1],:] - coord[connec[:,0],:]
+
+def K(x):
+    # Non-normalised direction cosines
+    l = np.sqrt((vectors**2).sum(axis=1)) # Length
+    e = vectors.T/l # Normalised Direction Cosines
+    B = (e[np.newaxis] * e[:,np.newaxis]).T # Transformation Matrix
+  # Defining Structure Stiffness Matrix
+    D = E * x/l
+    kx = e * D
+    K = np.zeros((2*m, 2*m))
+    for i in range(n): # Local Stiffness Matrices
+      aux = 2*connec[i,:]
+      index = np.r_[aux[0]:aux[0]+2, aux[1]:aux[1]+2]
+      k0 = np.concatenate((np.concatenate((B[i],-B[i]),axis=1), \
+      np.concatenate((-B[i],B[i]),axis=1)), axis=0)
+      K[np.ix_(index,index)] = K[np.ix_(index,index)] + D[i] * k0
+    block = freenode.flatten().nonzero()[0]
+    matrix = K[np.ix_(block,block)]
+    return matrix
+    
+    
+        block = freenode.flatten().nonzero()[0]
+        rhs = F.flatten()[block]
+    
+        nsurr=n # Design Variables
+        m_train=int((1-testratio)*samples)
+        x=np.random.random(n)
+        dof= rhs.shape[0] # Degree of freedom
+    
+        #Generating training inputs
+        X = lhs(nsurr, samples=m_train) 
+        # Latin Hypercube sampling with uniform Distribution
+        #X = norm(loc=0, scale=1).ppf(X)  # Normal Distribution
+    
+        #means = [1, 2, 3, 4]
+        #stdvs = [0.1, 0.5, 1, 0.25]
+        #for i in xrange(4):
+          #X[:, i] = norm(loc=means[i], scale=stdvs[i]).ppf(X[:, i])#
+    
+        #Generating training outputs
+    
+        U=np.ones((len(X),dof))
+        for i in range(len(X)):
+          U[i]=np.linalg.solve(K(X[i]),rhs)
+    
+        # Generating Test input and output
+        m_test=int(testratio*samples)
+        X_test = lhs(n, samples=m_test)
+        U_test=np.ones((len(X_test),dof))
+        for i in range(len(X_test)):
+          U_test[i]=np.linalg.solve(K(X_test[i]),rhs)
+    
+#Split Train and Test Data
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 0)
+
+# Feature Scaling
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)
+        
+# Defining the Model
+def buildmodel(optimizer,layer1units,layer2units,n,dof):
+    model =tf.keras.Sequential()
+    model.add(keras.layers.Dense(layer1units,activation='relu',input_shape=(n,)))
+    model.add(keras.layers.Dense(layer2units,activation='relu'))
+    model.add(keras.layers.Dense(dof))
+    return model
+
+# Define Model Training Parameters
+model_ANN.compile(optimizer='adam',loss='MSE',metrics=['mae'])
+
+# Training the model
+model_ANN.fit(X,U,epochs=100,validation_split=0.15)
+
+# Testing the Model
+model_ANN.evaluate(X_test,U_test)
