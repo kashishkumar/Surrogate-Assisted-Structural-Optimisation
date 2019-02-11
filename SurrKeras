@@ -149,7 +149,7 @@ Sample Size - 500
 
 Epoch - 10000 
 
-Optimizer - adam  
+Optimizer - SGD  
 
 Activation Function - softplus 
 
