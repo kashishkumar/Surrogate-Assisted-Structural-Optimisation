@@ -1,0 +1,199 @@
+import numpy as np
+
+def meshtruss(p1,p2,nx,ny):
+  """ Define Geometry of the trus
+      p1 - coordinate of one end, p2 - coordinate of second end
+      nx - number of nodes in x direction, # ny - number of nodes in y direction
+      returns coordinates of nodes, and """
+  nodes = []
+  bars = []
+  xx = np.linspace(p1[0],p2[0],nx+1)
+  yy = np.linspace(p1[1],p2[1],ny+1)
+  for y in yy:
+    for x in xx:
+      nodes.append([x,y])
+  for j in range(ny):
+      for i in range(nx):
+        n1 = i + j*(nx+1)
+        n2 = n1 + 1
+        n3 = n1 + nx + 1
+        n4 = n3 + 1
+        bars.extend([[n1,n2],[n1,n3],[n1,n4],[n2,n3]])
+      bars.append([n2,n4])
+  index = ny*(nx+1) + 1
+  for j in range(nx):
+    bars.append([index+j-1,index+j])
+  return np.array(nodes), np.array(bars)
+
+def remove_bar (connec ,n1 ,n2):
+    bars = connec.tolist()
+    for bar in bars[:]:
+        if (bar[0] == n1 and bar[1] == n2):
+            bars.remove(bar)
+            return np.array(bars)
+        
+
+def remove_node(connec, n1):
+    bars = connec.tolist()
+    for bar in bars[:]:
+        if bar[0] == n1 or bar[1] == n1:
+            bars.remove(bar)
+            return np.array(bars)
+
+# Modelling
+coord, connec = meshtruss((0,0), (18.28,9.14), 2, 1)
+connec=remove_bar(connec,0,3)
+E0=2e11
+E = E0*np.ones(connec.shape[0])
+loads = np.zeros_like(coord)
+loads[1,1] = -445000
+loads[2,1] = -445000
+free = np.ones_like(coord).astype(int)
+free[0,:]=0
+free[3,:]=0
+F=loads
+
+n = connec.shape[0]  # Number of members
+m = coord.shape[0]   # Number of nodes
+vectors = coord[connec[:,1],:] - coord[connec[:,0],:]  # Nonnormalised direction cosines
+l = np.sqrt((vectors**2).sum(axis=1)) #Length
+e = vectors.T/l #Normalised Direction Cosines
+B = (e[np.newaxis] * e[:,np.newaxis]).T # Transformation Matrix
+
+
+def Analysis(x):
+    D = E * x/l
+    kx = e * D
+    K = np.zeros((2*m, 2*m))
+    for i in range(n): # Local Stiffness Matrices
+        aux = 2*connec[i,:]
+        index = np.r_[aux[0]:aux[0]+2, aux[1]:aux[1]+2]
+        k0 = np.concatenate((np.concatenate((B[i],-B[i]),axis=1), \
+        np.concatenate((-B[i],B[i]),axis=1)), axis=0)
+        K[np.ix_(index,index)] = K[np.ix_(index,index)] + D[i] * k0
+    block = free.flatten().nonzero()[0]
+    matrix = K[np.ix_(block,block)] # Global Stiffness Matrix
+    rhs = F.flatten()[block]        # Force Vector
+    solution = np.linalg.solve(matrix,rhs) # Solving Ax=B to get U
+    u=free.astype(float).flatten()
+    u[block] = solution
+    U = u.reshape(m,2)
+    axial = ((U[connec[:,1],:] - U[connec[:,0],:]) * kx.T).sum(axis=1) # Axial Load Calculation
+    stress = axial / x # Axial Stress
+    return U.reshape((12,))[U.reshape((12,))!=0]
+
+#U=Analysis(x)
+
+#x=np.random.random((10,))/1550.003+1/(350*1550.003)
+#x=0.6425*np.ones(10)
+
+#U=Analysis(x)
+
+# Data Generation
+import pyDOE
+from pyDOE import *
+from scipy.stats.distributions import norm
+
+xmin=0.1/1550.003 # in Square meters
+xmax=35/1550.003  
+samples = 500 # Input the number of samples needed to model
+
+X = ((xmax-xmin)*lhs(connec.shape[0], samples=samples))+xmin # X as (Samples, Design Variables)
+y=np.zeros((samples,8))                   # Y as (Samples, Output Shape)
+for i in range(X.shape[0]):
+    y[i]=Analysis(X[i])
+    
+#Using Keras to Train
+#Split Train and Test Data
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.2, random_state = 0)
+
+# Feature Scaling
+from sklearn.preprocessing import StandardScaler
+sc = StandardScaler()
+X_train = sc.fit_transform(X_train)
+X_test = sc.transform(X_test)
+    
+from keras.layers import Dropout  
+import keras  
+from keras.layers import Dense
+import numpy
+from sklearn.model_selection import GridSearchCV
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.wrappers.scikit_learn import KerasRegressor
+from keras.optimizers import SGD
+from keras.optimizers import adam
+# Defining the Model
+def buildmodel(layer1units,layer2units,n,dof,learningrate=0.1,momentum=0.9):
+    model =keras.Sequential()
+    model.add(Dense(layer1units,kernel_initializer='uniform', activation='softplus',input_shape=(n,)))
+    model.add(Dropout(0.1))
+    model.add(Dense(layer2units,kernel_initializer='uniform', activation='softplus'))
+    model.add(Dropout(0.1))
+    model.add(Dense(dof))
+    # Define Model Training Parameters
+    optimizer=SGD(lr=learningrate,momentum=momentum)
+    model.compile(optimizer=optimizer,loss='MSE',metrics=['mae','acc'])
+    return model
+
+
+model_Analysis=buildmodel(20,20,10,8)
+
+"""
+
+Default Model 
+
+Sample Size - 500 
+
+
+Epoch - 10000 
+
+Optimizer - SGD  
+
+Activation Function - softplus 
+
+Learning and momentum rate - 0.1,0.9 
+
+Weight Initialisation - uniform 
+
+Dropout rate -0.1 
+
+Neurons -20, 20 
+
+
+"""
+
+# Training the model
+model_Analysis.fit(X_train,y_train,epochs=10000,validation_split=0.15)
+
+
+# Import library to measure test performance
+
+import time
+
+# Testing the Model
+model_Analysis.evaluate(X_test,y_test)
+
+# Predicting using model
+start = time.time()
+ytestpredicted=model_Analysis.predict(X_test)
+end = time.time()
+time_taken_surrogate = end - start
+
+# Standard Analysis on test set
+ytest=np.ones_like(y_test) 
+
+start = time.time()
+for i in range(X_test.shape[0]):
+    ytest[i]=Analysis(X_test[i])
+end = time.time()
+time_taken_actual = end - start
+
+
+Time_Ratio=time_taken_actual/time_taken_surrogate
+print("Time Ratio is: %f" % np.round(Time_Ratio,2))
+
+from keras.models import load_model
+
+model_Analysis.save('model500.h5') # creates a HDF5 file 'my_model.h5'
