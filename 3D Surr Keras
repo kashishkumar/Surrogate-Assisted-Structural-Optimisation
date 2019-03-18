@@ -1,26 +1,34 @@
 import numpy as np
 
-def meshtruss(p1,p2,nx,ny):
+def meshtruss(p1,p2,nx,ny,nz):
   """ Define Geometry of the trus
       p1 - coordinate of one end, p2 - coordinate of second end
       nx - number of nodes in x direction, # ny - number of nodes in y direction
+      # nz - number of nodes in y direction
       returns coordinates of nodes, and """
   nodes = []
   bars = []
   xx = np.linspace(p1[0],p2[0],nx+1)
   yy = np.linspace(p1[1],p2[1],ny+1)
-  for y in yy:
-    for x in xx:
-      nodes.append([x,y])
-  for j in range(ny):
-      for i in range(nx):
-        n1 = i + j*(nx+1)
-        n2 = n1 + 1
-        n3 = n1 + nx + 1
-        n4 = n3 + 1
-        bars.extend([[n1,n2],[n1,n3],[n1,n4],[n2,n3]])
-      bars.append([n2,n4])
+  zz = np.linspace(p1[1],p2[1],nz+1)
+  for z in zz:
+	  for y in yy:
+		for x in xx:
+		  nodes.append([x,y,z])
+	
+  # To be looked into		  
+  for k in range(nz):
+	  for j in range(ny):
+		  for i in range(nx):
+		    n1 = i + j*(nx+1)
+		    n2 = n1 + 1
+		    n3 = n1 + nx + 1
+		    n4 = n3 + 1
+		    bars.extend([[n1,n2],[n1,n3],[n1,n4],[n2,n3]])
+		  bars.append([n2,n4])
+		  
   index = ny*(nx+1) + 1
+  
   for j in range(nx):
     bars.append([index+j-1,index+j])
   return np.array(nodes), np.array(bars)
@@ -55,16 +63,16 @@ F=loads
 
 n = connec.shape[0]  # Number of members
 m = coord.shape[0]   # Number of nodes
-vectors = coord[connec[:,1],:] - coord[connec[:,0],:]  # Nonnormalised direction cosines
+# to be corrected for 3d vectors = coord[connec[:,1],:] - coord[connec[:,0],:]  # Nonnormalised direction cosines
 l = np.sqrt((vectors**2).sum(axis=1)) #Length
 e = vectors.T/l #Normalised Direction Cosines
 B = (e[np.newaxis] * e[:,np.newaxis]).T # Transformation Matrix
 
 
 def Analysis(x):
-    D = E * x/l
+    D = E * x/l  # n dimensional
     kx = e * D
-    K = np.zeros((2*m, 2*m))
+    K = np.zeros((3*m, 3*m))  # As per degrees of freedom
     for i in range(n): # Local Stiffness Matrices
         aux = 2*connec[i,:]
         index = np.r_[aux[0]:aux[0]+2, aux[1]:aux[1]+2]
@@ -80,7 +88,7 @@ def Analysis(x):
     U = u.reshape(m,2)
     axial = ((U[connec[:,1],:] - U[connec[:,0],:]) * kx.T).sum(axis=1) # Axial Load Calculation
     stress = axial / x # Axial Stress
-    return U.reshape((12,))[U.reshape((12,))!=0]
+    return U.reshape((12,))[U.reshape((12,))!=0] # 12 is the active degrees of freedom
 
 #U=Analysis(x)
 
